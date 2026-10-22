@@ -27,6 +27,13 @@
       <dd>{{.Current.User.Role}}</dd>
     </dl>
     <form method="post" action="/account/email" class="account-form">
+      <label
+        >Current Password<input
+          name="currentPassword"
+          type="password"
+          autocomplete="current-password"
+          required /></label
+      >
       <input
         name="csrfToken"
         type="hidden"
@@ -39,6 +46,7 @@
           value="{{.Current.User.Email}}"
           required /></label
       ><button type="submit">Change email</button>
+
     </form>
   </article>
   <article class="card">
