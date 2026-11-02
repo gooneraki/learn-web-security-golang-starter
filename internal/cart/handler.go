@@ -2,6 +2,7 @@ package cart
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 
 	"github.com/bootdotdev/learn-web-security/internal/accounts"
@@ -10,6 +11,8 @@ import (
 	"github.com/bootdotdev/learn-web-security/internal/logging"
 	"github.com/bootdotdev/learn-web-security/internal/templates"
 )
+
+var cartQuantityPattern = regexp.MustCompile(`^(0|[1-9]\d?)$`)
 
 type itemView struct {
 	Item
@@ -186,17 +189,9 @@ func makeItemViews(items []Item) []itemView {
 }
 
 func parseQuantity(value string, minimum int64) (int64, bool) {
-	if len(value) == 0 || len(value) > 2 || (len(value) > 1 && value[0] == '0') {
+	if !cartQuantityPattern.MatchString(value) {
 		return 0, false
-	}
-	for _, digit := range value {
-		if digit < '0' || digit > '9' {
-			return 0, false
-		}
 	}
 	quantity, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return 0, false
-	}
-	return quantity, quantity >= minimum && quantity <= MaximumQuantity
+	return quantity, err == nil && quantity >= minimum && quantity <= MaximumQuantity
 }
