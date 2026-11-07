@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"os"
 	"path/filepath"
 	"strings"
-	"uuid"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -74,8 +74,7 @@ func ExtractTaxDocumentArchive(encryptionKeyring Keyring, contents []byte, extra
 		uncompressedBytes += entry.UncompressedSize64
 	}
 
-	identifier := uuid.NewV4()
-	importDirectory := filepath.Join(extractionDirectory, identifier.String())
+	importDirectory := filepath.Join(extractionDirectory, uuid.NewString())
 	plannedEntries := make([]plannedArchiveEntry, 0, len(archiveReader.File))
 	for _, entry := range archiveReader.File {
 		entryDestination := filepath.Join(importDirectory, entry.Name)
@@ -96,15 +95,16 @@ func ExtractTaxDocumentArchive(encryptionKeyring Keyring, contents []byte, extra
 		if err != nil {
 			return ExtractedTaxDocumentArchive{}, &ArchiveImportError{Message: "Choose a valid ZIP archive.", StatusCode: 400}
 		}
-		contentType := mime.TypeByExtension(filepath.Ext(entry.Name))
-		if contentType == "" {
-			contentType = "application/octet-stream"
+
+		contentType, suffix, valid := detectDocumentType(entryContents)
+		if !valid {
+			return ExtractedTaxDocumentArchive{}, &ArchiveImportError{Message: "Invalid document type.", StatusCode: 400}
 		}
 		storedContents, encrypted, err := encryptDocument(entryContents, encryptionKeyring)
 		if err != nil {
 			return ExtractedTaxDocumentArchive{}, err
 		}
-		storagePath := entryDestination
+		storagePath := filepath.Join(importDirectory, uuid.NewString()+suffix)
 		if encrypted {
 			storagePath += ".enc"
 		}
