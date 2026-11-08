@@ -9,6 +9,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -65,6 +66,36 @@ func cspNonce(next http.Handler) http.Handler {
 		request = request.WithContext(httpx.WithCSPNonce(request.Context(), nonce))
 		next.ServeHTTP(responseWriter, request)
 	})
+}
+
+func validateRequestOrigin(appOrigin string, renderer *templates.Renderer) middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+			if request.Method != http.MethodPost {
+				next.ServeHTTP(responseWriter, request)
+				return
+			}
+
+			sourceOrigin := ""
+			origins := request.Header.Values("Origin")
+			if len(origins) == 1 {
+				sourceOrigin = origins[0]
+			} else if len(origins) == 0 {
+				referer, err := url.Parse(request.Header.Get("Referer"))
+				if err == nil && (referer.Scheme == "http" || referer.Scheme == "https") && referer.Host != "" && referer.User == nil {
+					sourceOrigin = referer.Scheme + "://" + referer.Host
+				}
+			}
+			if sourceOrigin == "" || sourceOrigin != appOrigin {
+				if err := httpx.RespondWithErrorPage(responseWriter, renderer, http.StatusForbidden, "Forbidden", "The request source is missing, malformed, or untrusted."); err != nil {
+					http.Error(responseWriter, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				}
+				return
+			}
+
+			next.ServeHTTP(responseWriter, request)
+		})
+	}
 }
 
 func recoverPanics(logger *logging.Logger, renderer *templates.Renderer) middleware {
