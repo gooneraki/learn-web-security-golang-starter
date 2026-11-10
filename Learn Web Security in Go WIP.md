@@ -78,3 +78,81 @@ In internal/httpserver/middleware.go, update contentSecurityPolicy to load the r
 Start the app, log in as Mabel, and confirm PawPal redirects automatically after checkout.
 
 With Bearly Secure still running, run and submit the CLI tests from the project root.
+
+### L7: Sandboxing 'iframe' Elements
+Sandboxing iframe Elements
+An iframe embeds another webpage inside the current page. Third-party widgets, ads, maps, and videos often use iframes, but an unrestricted iframe can give the embedded page waaaay more browser capabilities than it actually needs.
+
+The HTML sandbox attribute removes capabilities from one embedded document:
+
+<iframe src="/shipping-widget.html" sandbox="allow-scripts"></iframe>
+
+If the sandbox is empty, all restrictions are applied by default. Alternatively, you can grant back specific capabilities with space-separated keywords, for example:
+
+allow-scripts lets the framed page run JavaScript.
+
+allow-same-origin preserves the framed page's real origin, which may restore access to its cookies and local storage. If the frame and parent are same-origin, it also lets their scripts access each other's documents.
+
+allow-forms lets the framed page submit forms.
+
+allow-popups lets the framed page open new windows.
+
+You can see the full list of sandbox tokens on MDN.
+
+As always, follow the principle of least privilege: only grant the permissions that the embedded page actually needs!
+
+Don't combine allow-scripts and allow-same-origin for same-origin untrusted content. Together, those permissions can let the embedded document remove its own sandbox attribute, making the sandbox useless!
+
+Assignment
+The Acorn Express frame on Bearly Secure's checkout page can access more than its estimator needs. Allow scripts while blocking same-origin access.
+
+Start the app, log in as Mabel, add a product, and open checkout. Confirm the unsandboxed widget can read the host page title.
+
+In web/templates/checkout.html, add sandbox="allow-scripts" to the shipping-widget iframe.
+
+Confirm delivery estimation still works and the widget reports that host-page access is blocked.
+
+With Bearly Secure still running, run and submit the CLI tests from the project root.
+
+### L8: Clickjacking
+Clickjacking
+Clickjacking tricks a user into clicking on a real application that has been disguised (or hidden) inside an attacker's page.
+
+The attacker might place a sensitive page underneath a fake button:
+
+<button>Claim free gems</button>
+
+<iframe
+  src="https://bank.example.com/confirm-transfer"
+  style="opacity: 0; position: absolute; top: 0; left: 0;"
+></iframe>
+
+If the victim is signed in to bank.example.com, the framed page loads with their bank session. The attacker doesn't need to read the page, they just need to bait the victim into clicking on the fake button and triggering the real page's action.
+
+Control Framing
+The frame-ancestors CSP directive controls which parent origins can embed a response:
+
+Content-Security-Policy: frame-ancestors 'self'
+
+'self' allows same-origin parents while blocking an attacker's origin.
+
+The older X-Frame-Options header can provide a fallback for older browsers:
+
+X-Frame-Options: SAMEORIGIN
+
+If your app never needs to be framed, just use frame-ancestors 'none' and X-Frame-Options: DENY. If it intentionally supports same-origin framing, use 'self' and SAMEORIGIN instead.
+
+Assignment
+Bearly Evil can frame Bearly Secure's account page. Block cross-origin framing without breaking Acorn Express.
+
+Start Bearly Secure and log in as Mabel. In another shell, start Bearly Evil:
+
+go run ./cmd/attackerlab
+
+At http://localhost:4040/, confirm the framing and clickjacking section displays Mabel's account page.
+
+In the existing security middleware, add frame-ancestors 'self' to CSP and send X-Frame-Options: SAMEORIGIN.
+
+With Bearly Secure and Bearly Evil still running, run and submit the CLI tests from the project root.
+
+You can stop Bearly Evil after submitting the lesson.
