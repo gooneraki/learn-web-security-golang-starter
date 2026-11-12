@@ -1,7 +1,7 @@
 ## CH6: Client-Side Security
 
 ### L5: Content Security Policy
-Content Security Policy
+
 A Content Security Policy (CSP) lets a server declare which resources a page is allowed to load and execute. A CSP doesn't replace escaping your output, but it can limit the damage if an injection attack succeeds.
 
 It's set via the Content-Security-Policy response header on an HTML page. For example, a weak policy might allow inline scripts:
@@ -45,7 +45,7 @@ Start the app, log in as Mabel, and place an order. Confirm CSP blocks the autom
 With Bearly Secure still running, run and submit the CLI tests from the project root.
 
 ### L6: Legitimate Inline Scripts
-Legitimate Inline Scripts
+
 Moving all your own JavaScript into same-origin external files is usually the simplest way to keep a strict CSP. When a trusted inline script really has to stay inline, authorize just that one script with a per-response nonce.
 
 Generate a fresh, unpredictable value for every HTML response:
@@ -80,7 +80,7 @@ Start the app, log in as Mabel, and confirm PawPal redirects automatically after
 With Bearly Secure still running, run and submit the CLI tests from the project root.
 
 ### L7: Sandboxing 'iframe' Elements
-Sandboxing iframe Elements
+
 An iframe embeds another webpage inside the current page. Third-party widgets, ads, maps, and videos often use iframes, but an unrestricted iframe can give the embedded page waaaay more browser capabilities than it actually needs.
 
 The HTML sandbox attribute removes capabilities from one embedded document:
@@ -115,7 +115,7 @@ Confirm delivery estimation still works and the widget reports that host-page ac
 With Bearly Secure still running, run and submit the CLI tests from the project root.
 
 ### L8: Clickjacking
-Clickjacking
+
 Clickjacking tricks a user into clicking on a real application that has been disguised (or hidden) inside an attacker's page.
 
 The attacker might place a sensitive page underneath a fake button:
@@ -158,7 +158,7 @@ With Bearly Secure and Bearly Evil still running, run and submit the CLI tests f
 You can stop Bearly Evil after submitting the lesson.
 
 ### L9: Same-Origin and Referrer Policies
-Same-Origin and Referrer Policies
+
 The same-origin policy stops client-side JavaScript from reading data from another origin unless that origin explicitly allows it.
 
 An origin combines scheme (https), host (api.example.com), and port (443), so changing any one of them changes the origin.
@@ -204,3 +204,128 @@ Add the header to Bearly Secure's global security middleware.
 Start the app.
 
 With Bearly Secure still running, run and submit the CLI tests from the project root.
+
+### L10: Cross-Origin Resource Sharing
+Cross-Origin Resource Sharing (CORS) lets a server tell browsers which other origins may read its responses. It's a browser security mechanism, not authentication, and it doesn't stop requests from curl, server-side programs, or other non-browser clients.
+
+Click to hide video
+
+Preflight
+For some cross-origin requests, the browser sends a preflight OPTIONS request before the real request. The response needs to approve the requesting origin, method, and any non-safelisted headers. Otherwise, the browser refuses to send the actual request.
+
+Requests that don't require preflight may still be sent, but JavaScript can't read their responses unless the server grants access.
+
+Bearly Secure's CORS Bug
+Bearly Secure reflects every requesting Origin into Access-Control-Allow-Origin and sends Access-Control-Allow-Credentials: true. Instead of limiting access, that policy tells the browser that any website asking for authenticated data may read it.
+
+An attacker's page can make a credentialed request:
+
+const response = await fetch("http://localhost:3030/api/account", {
+  credentials: "include",
+});
+const account = await response.json();
+
+The same-origin policy would normally block the attacker from reading the response. Bearly Secure's CORS headers explicitly grant that origin access, so the browser exposes the authenticated data to the attacker's JavaScript.
+
+#### Quiz
+
+##### Question 1
+
+Bearly Evil cannot read Bearly Secure's HTML account page, but it can read the authenticated account API response. Why does the API read succeed?
+- 1 The same-origin policy protects HTML responses but does not apply to JSON API responses.
+- 2 Setting credentials: "include" tells the browser to ignore the same-origin policy for that request.
+- 3 CORS authenticates Bearly Evil as a trusted client after the browser sends the session cookie.
+- 4 Bearly Secure reflects the attacker's origin in its CORS response and allows credentials, explicitly granting that origin access to the API response.
+
+##### Question 2
+
+Bearly Evil attempts a cross-origin PUT that requires a preflight. Which outcome follows if Bearly Secure does not authorize PUT in the preflight response?
+- 1 The browser sends the PUT but hides only its response body.
+- 2 The browser retries the PUT without credentials or custom headers.
+- 3 The browser refuses to send the actual PUT request.
+- 4 Bearly Secure accepts the PUT because CORS applies only to GET requests.
+
+#### Explain
+Let's break down each question to see why those answers are correct.
+
+Question 1: Why does the API read succeed?
+Correct Answer: Bearly Secure reflects the attacker's origin in its CORS response and allows credentials, explicitly granting that origin access to the API response.
+
+By default, the browser enforces the Same-Origin Policy (SOP). Under SOP, scripts running on bearlyevil.com cannot read data returned from bearlysecure.com.
+
+When Bearly Evil makes a fetch request with credentials: "include", two things happen:
+
+The browser automatically attaches the victim's session cookies for bearlysecure.com.
+
+Bearly Secure's server misconfiguration comes into play: instead of checking an allowlist of approved domains, it dynamically copies the incoming Origin header (http://bearlyevil.com) directly into the response header:
+
+Access-Control-Allow-Origin: http://bearlyevil.com
+Access-Control-Allow-Credentials: true
+
+Because Access-Control-Allow-Origin explicitly names the attacker's origin and Access-Control-Allow-Credentials is set to true, the browser considers the response authorized. As a result, the browser hands the sensitive JSON response directly to the malicious script.
+
+Question 2: What happens if PUT is not authorized in the preflight?
+Correct Answer: The browser refuses to send the actual PUT request.
+
+Certain HTTP methods (such as PUT or DELETE) and custom headers can modify data on the server and are not considered "simple requests." Before sending them across origins, the browser must first send a preflight OPTIONS request.
+
+The preflight essentially asks the server:
+
+"I'm planning to send a PUT request from this origin. Do you allow that?"
+
+The server must reply with the allowed methods in the Access-Control-Allow-Methods header (e.g., Access-Control-Allow-Methods: GET, POST, PUT).
+
+If Bearly Secure does not authorize PUT in that preflight response:
+
+The preflight check fails.
+
+The browser halts execution immediately and refuses to send the actual PUT request.
+
+This prevents potentially destructive actions from ever reaching the server's application logic if the cross-origin policy is not satisfied beforehand.
+
+### L11: Route-Scoped CORS
+CORS permission belongs only on routes intentionally available to other browser origins. Applying it globally can expose authenticated APIs.
+
+Imagine middleware that reflects every origin and allows credentials:
+
+func permissiveCORS(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+        if origin := request.Header.Get("Origin"); origin != "" {
+            responseWriter.Header().Set("Access-Control-Allow-Origin", origin)
+            responseWriter.Header().Set("Access-Control-Allow-Credentials", "true")
+        }
+        next.ServeHTTP(responseWriter, request)
+    })
+}
+
+That gives every requesting website permission to read authenticated responses. Scary!
+
+Public and Private APIs
+A storefront can have different policies for different routes:
+
+A public product catalog may allow credential-free cross-origin reads.
+
+Account and order APIs contain authenticated data and don't need cross-origin access.
+
+For a public response, Access-Control-Allow-Origin: * is appropriate because the data needs no credentials. Its preflight response can advertise only GET, without allowing credentials or unnecessary request headers. Authenticated routes should omit CORS permission headers entirely.
+
+Assignment
+Bearly Secure grants every requesting origin access to all dynamic APIs. Replace the global policy with CORS limited to the public product API.
+
+Start Bearly Secure and log in as Mabel. In another shell, start Bearly Evil:
+
+go run ./cmd/attackerlab
+
+At http://localhost:4040/, run the cross-origin resource-sharing test and confirm the account API response is readable.
+
+Remove the permissive global CORS middleware.
+
+For GET /api/products, send Access-Control-Allow-Origin: * and omit Access-Control-Allow-Credentials.
+
+Add an OPTIONS /api/products handler that returns 204 No Content, allows origin * and method GET, and omits Access-Control-Allow-Credentials and Access-Control-Allow-Headers.
+
+Leave authenticated account and order APIs without CORS permission headers.
+
+With Bearly Secure and Bearly Evil still running, run and submit the CLI tests from the project root.
+
+You can stop Bearly Evil after submitting the lesson.
