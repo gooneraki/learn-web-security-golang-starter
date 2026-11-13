@@ -329,3 +329,57 @@ Leave authenticated account and order APIs without CORS permission headers.
 With Bearly Secure and Bearly Evil still running, run and submit the CLI tests from the project root.
 
 You can stop Bearly Evil after submitting the lesson.
+
+### L12: Security Header Middleware
+
+Security headers let a server tell the browser which behavior to permit, but they're easy to configure inconsistently. Bearly Secure already has separate middleware for several policies. One focused middleware keeps the complete browser-security baseline together without adding a dependency just to set headers.
+
+Add the Remaining Baseline
+The existing CSP, nonce, framing, referrer, and nosniff policies need to remain intact. The consolidated middleware also adds narrow defaults:
+
+Cross-Origin-Opener-Policy: same-origin isolates the top-level browsing context from cross-origin openers.
+
+Cross-Origin-Resource-Policy: same-origin prevents other origins from loading the application's resources by default.
+
+Origin-Agent-Cluster: ?1 requests origin-keyed browser isolation.
+
+Legacy defensive headers disable DNS prefetching, browser download opening, cross-domain policy files, and obsolete XSS filtering.
+
+A sandboxed iframe without allow-same-origin has an opaque origin. The global same-origin resource policy would therefore block the shipping widget's own stylesheet and script. Override it only on those two public assets.
+
+Transport policy remains separate. A local HTTP app should not send Strict-Transport-Security or CSP's upgrade-insecure-requests directive.
+
+Assignment
+Bearly Secure's browser policies are split across middleware. Consolidate them and add the remaining header baseline without changing existing behavior.
+
+Replace the separate CSP and content-type middleware with one securityHeaders middleware that preserves:
+
+The per-response nonce and current CSP directives
+
+Referrer-Policy: strict-origin-when-cross-origin
+
+X-Content-Type-Options: nosniff
+
+X-Frame-Options: SAMEORIGIN
+
+Add these headers globally:
+
+Cross-Origin-Opener-Policy: same-origin
+
+Cross-Origin-Resource-Policy: same-origin
+
+Origin-Agent-Cluster: ?1
+
+X-DNS-Prefetch-Control: off
+
+X-Download-Options: noopen
+
+X-Permitted-Cross-Domain-Policies: none
+
+X-XSS-Protection: 0
+
+When serving shipping-widget.css and shipping-widget.js, override Cross-Origin-Resource-Policy with cross-origin so the sandboxed widget can load them.
+
+Start the app.
+
+With Bearly Secure still running, run and submit the CLI tests from the project 

@@ -236,7 +236,6 @@ func New(database *sql.DB, logger *logging.Logger, options Options) (*Applicatio
 
 	handler := applyMiddleware(
 		mainMux,
-		applyNoSniff,
 		cspNonce,
 		securityHeaders,
 		recoverPanics(logger, renderer),
@@ -256,6 +255,9 @@ func newStaticHandler(publicRoot *os.Root) http.Handler {
 		if err != nil || fileInfo.IsDir() {
 			http.NotFound(responseWriter, request)
 			return
+		}
+		if relativePath == "shipping-widget.css" || relativePath == "shipping-widget.js" {
+			responseWriter.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
 		}
 		fileServer.ServeHTTP(responseWriter, request)
 	})

@@ -23,14 +23,6 @@ import (
 
 type middleware func(http.Handler) http.Handler
 
-func applyNoSniff(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
-		responseWriter.Header().Set("X-Content-Type-Options", "nosniff")
-		next.ServeHTTP(responseWriter, request)
-	})
-
-}
-
 func applyMiddleware(handler http.Handler, middlewareChain ...middleware) http.Handler {
 	for _, currentMiddleware := range slices.Backward(middlewareChain) {
 		handler = currentMiddleware(handler)
@@ -57,6 +49,14 @@ func securityHeaders(next http.Handler) http.Handler {
 		responseWriter.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'nonce-"+nonce+"'; style-src 'self'; img-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'")
 		responseWriter.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		responseWriter.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		responseWriter.Header().Set("X-Content-Type-Options", "nosniff")
+		responseWriter.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		responseWriter.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		responseWriter.Header().Set("Origin-Agent-Cluster", "?1")
+		responseWriter.Header().Set("X-DNS-Prefetch-Control", "off")
+		responseWriter.Header().Set("X-Download-Options", "noopen")
+		responseWriter.Header().Set("X-Permitted-Cross-Domain-Policies", "none")
+		responseWriter.Header().Set("X-XSS-Protection", "0")
 		next.ServeHTTP(responseWriter, request)
 	})
 }
