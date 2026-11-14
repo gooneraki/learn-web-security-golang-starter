@@ -383,3 +383,64 @@ When serving shipping-widget.css and shipping-widget.js, override Cross-Origin-R
 Start the app.
 
 With Bearly Secure still running, run and submit the CLI tests from the project 
+
+## CH7: Data Leaks
+
+### L1: Data Leaks
+An endpoint can pass every authorization check and still reveal more data than it should. Imagine an online bookstore that sends its full inventory records to every shopper:
+
+func booksHandler(responseWriter http.ResponseWriter, request *http.Request) {
+    books, err := store.ListAllBooks(request.Context())
+    if err != nil {
+        http.Error(responseWriter, "Something went wrong", http.StatusInternalServerError)
+        return
+    }
+    _ = json.NewEncoder(responseWriter).Encode(map[string]any{"books": books})
+}
+
+Those records might include supplier costs, unpublished titles, acquisition notes, and internal audit fields. The storefront didn't need any of that.
+
+Maybe the endpoint was safe when the table it was reading from only contained public fields. But as the data model grows, every endpoint that returns the whole record inherits its new private data. Oopsie.
+
+Explicit Response Shapes
+You should explicitly control what crosses the server-to-client boundary! A typed response shape gives you a stable public contract that doesn't grow just because the database model does:
+
+type bookResponse struct {
+    ID     int64  `json:"id"`
+    Title  string `json:"title"`
+    Author string `json:"author"`
+}
+
+func toBookResponse(book Book) bookResponse {
+    return bookResponse{
+        ID:     book.ID,
+        Title:  book.Title,
+        Author: book.Author,
+    }
+}
+
+Return the fields the client is allowed to see, not the value you happen to store in your database.
+
+Assignment
+Bearly Secure's public product and customer order APIs return complete stored models. Return explicit public response shapes instead.
+
+In internal/api/handler.go, define a productResponse containing only id, name, description, image_path, and price_cents.
+
+Define an orderResponse containing only id, status, total_cents, and created_at. Reuse the existing orderItemResponse for order items.
+
+Convert the stored models returned by these handlers into the public response types:
+
+GET /api/products
+
+GET /api/account/orders
+
+GET /api/orders/{id}
+
+Return only active products from the public product API using storefront.Store.ListProducts. Remove storefront.Store.ListAllProducts and the JSON tags from the private storefront.Product model.
+
+Keep the warehouse integration API and the server-rendered admin and support pages working as before.
+
+Start the app.
+
+With Bearly Secure still running, run and submit the CLI tests from the project root.
+
