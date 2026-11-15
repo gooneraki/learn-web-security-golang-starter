@@ -444,3 +444,38 @@ Start the app.
 
 With Bearly Secure still running, run and submit the CLI tests from the project root.
 
+### L2: Sanitizing Error Messages
+Error messages are for developers, but attackers love to read them too. Imagine a ticketing site that returns a failed SQL query and stack trace in the HTTP response anytime the checkout handler crashes. The attacker now knows table names, local file paths, and which library code to probe next.
+
+Even if the error isn't directly exploitable, it gives the attacker a handy little map of the system.
+
+Error leaks usually happen when diagnostic details meant for developers get passed straight into an HTTP response:
+
+// broken: returns developer diagnostics to the client
+func writeInternalError(responseWriter http.ResponseWriter, err error) {
+    http.Error(responseWriter, err.Error(), http.StatusInternalServerError)
+}
+
+Public Responses, Private Diagnostics
+The client and your logs cross different trust boundaries. Users need a low-detail failure message and a safe next step. Developers need enough server-side context to debug.
+
+// fixed: logs the details and returns a generic response
+func writeInternalError(responseWriter http.ResponseWriter, err error) {
+    slog.Error("request failed", "error", err)
+    http.Error(responseWriter, "Something went wrong", http.StatusInternalServerError)
+}
+
+The generic "Something went wrong" response is not about hiding that a failure happened. It's about keeping private diagnostics on the server, where they belong. You can often provide a safe next step, like "Please try again later" or "Contact support if the problem persists," but never include the raw stack trace.
+
+Assignment
+Bearly Secure's shared error responders return their server-side diagnostics to the client. Sanitize 500-level responses without changing their status codes or weakening diagnostics.
+
+In internal/httpx/respond.go, make RespondWithError replace the client message for every 500-level response with The request failed. Try again, or return to the store. Keep printing the original diagnostic on the server.
+
+Make RespondWithErrorPage use the same safe message and the title Something Went Wrong for every 500-level response.
+
+Preserve the supplied messages and titles for responses below 500.
+
+Start the app.
+
+With Bearly Secure still running, run and submit the CLI tests from the project root.
