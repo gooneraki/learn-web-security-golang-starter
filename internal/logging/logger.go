@@ -16,6 +16,10 @@ type Logger struct {
 	now   func() time.Time
 }
 
+var redactedFields = []string{
+	"sessionId", "resetToken", "resetLink", "secret", "adminNotes", "storagePath",
+}
+
 func Open(filePath string) (*Logger, error) {
 	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 		return nil, fmt.Errorf("create log directory: %w", err)
@@ -38,9 +42,21 @@ func (logger *Logger) Event(eventName string, fields map[string]any) error {
 	}
 	maps.Copy(record, fields)
 
+	redacted := make(map[string]any, len(record))
+
+	for key, value := range record {
+		redacted[key] = value
+		for _, field := range redactedFields {
+			if key == field {
+				redacted[key] = "[REDACTED]"
+				break
+			}
+		}
+	}
+
 	logger.mutex.Lock()
 	defer logger.mutex.Unlock()
-	if err := json.NewEncoder(logger.file).Encode(record); err != nil {
+	if err := json.NewEncoder(logger.file).Encode(redacted); err != nil {
 		return fmt.Errorf("write application log: %w", err)
 	}
 	return nil

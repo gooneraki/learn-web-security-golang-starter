@@ -479,3 +479,27 @@ Preserve the supplied messages and titles for responses below 500.
 Start the app.
 
 With Bearly Secure still running, run and submit the CLI tests from the project root.
+
+### L3: Global Error Handling
+Global Error Handling
+A safe error response is useless if one forgotten handler lets a panic escape. In Go, recovery middleware gives you one final boundary between unexpected failures and public responses.
+
+Install a deferred function before calling the next handler. If downstream code panics, recover can capture the value so the middleware can log it and return a generic response:
+
+func recoverPanics(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+        defer func() {
+            if recovered := recover(); recovered != nil {
+                slog.Error("unhandled panic", "value", recovered)
+                http.Error(responseWriter, "Something went wrong", http.StatusInternalServerError)
+            }
+        }()
+
+        next.ServeHTTP(responseWriter, request)
+    })
+}
+
+Some failures are expected or handler-specific and should be handled where they occur. A missing concert ticket should get a deliberate 404, and invalid checkout input should get a client-safe 400. Recovery middleware is a last resort for unexpected panics, not a replacement for ordinary error handling.
+
+Handle expected failures locally. Use recovery middleware to log unexpected panics and return a safe 500.
+
