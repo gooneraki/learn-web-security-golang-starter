@@ -503,3 +503,78 @@ Some failures are expected or handler-specific and should be handled where they 
 
 Handle expected failures locally. Use recovery middleware to log unexpected panics and return a safe 500.
 
+#### Quiz
+#### Explain
+All three follow one security principle: clients get safe, intentional responses; servers keep detailed diagnostics in logs.
+
+1. Missing file vs. filesystem failure
+- A missing requested file is an expected condition, so a deliberate 404 Not Found is appropriate.
+- A filesystem read failure is unexpected and may reveal internals if exposed. Log the real error server-side, but return a generic 500 Internal Server Error.
+
+2. Why defer before next.ServeHTTP
+- recover() only catches a panic when it runs inside a deferred function on the same goroutine.
+- The deferred function must be registered before invoking the downstream handler, so it is waiting if that handler panics.
+
+3. Never return panic details
+- A panic might contain secrets such as connection strings, file paths, or stack details.
+- Log that diagnostic information for developers, then send clients a generic 500 message.
+
+
+### L4: Sanitizing Logs
+Logs are great for observability, but they shouldn't be treated like a vault. They often outlive the requests that produced them, get copied into third-party tools and backups, and are readable by more people than the production database.
+
+Of course, you should always do your best to keep logs private, but you should also avoid putting secrets in logs in the first place.
+
+Secrets in Logs
+Imagine an app that logs the working credential from every password-reset request:
+
+logger.Event("password_reset_request", map[string]any{
+    "accountId":  account.ID,
+    "success":    true,
+    "resetToken": resetToken,
+})
+
+Anyone who can read the log can now take over that account. Yikers.
+
+Log What You Need
+Log only what a developer or system administrator will actually need to investigate the system. A login event usually needs the account ID and outcome, not the session credential that proves the user is authenticated:
+
+logger.Event("login_attempt", map[string]any{
+    "accountId": account.ID,
+    "success":   true,
+})
+
+For a codebase with many structured log calls, centralized redaction is a great idea:
+
+var sensitiveFields = map[string]struct{}{
+    "sessionId":  {},
+    "resetToken": {},
+    "secret":     {},
+}
+
+func redact(fields map[string]any) map[string]any {
+    redacted := make(map[string]any, len(fields))
+    for name, value := range fields {
+        if _, sensitive := sensitiveFields[name]; sensitive {
+            redacted[name] = "[REDACTED]"
+            continue
+        }
+        redacted[name] = value
+    }
+    return redacted
+}
+
+This exact-key pattern only redacts the top-level fields it knows about. It won't catch apiToken under a different name or inside a nested value. Some structured logging libraries provide tested, more powerful redaction.
+
+Redaction is a backstop, not permission to log everything. Don't even try to log a secret when the event doesn't need it.
+
+Assignment
+Bearly Secure's structured logs contain session IDs, reset credentials, TOTP secrets, internal notes, and storage paths. Redact sensitive fields centrally before writing them.
+
+In internal/logging/logger.go, treat these exact top-level keys as sensitive: sessionId, resetToken, resetLink, secret, adminNotes, and storagePath.
+
+In Logger.Event, replace each sensitive value with "[REDACTED]" before encoding the record. Preserve all other fields.
+
+Start the app.
+
+With Bearly Secure still running, run and submit the CLI tests from the project root.

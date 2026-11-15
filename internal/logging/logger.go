@@ -3,12 +3,13 @@ package logging
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 )
+
+const redactedValue = "[REDACTED]"
 
 type Logger struct {
 	mutex sync.Mutex
@@ -16,8 +17,13 @@ type Logger struct {
 	now   func() time.Time
 }
 
-var redactedFields = []string{
-	"sessionId", "resetToken", "resetLink", "secret", "adminNotes", "storagePath",
+var sensitiveFields = map[string]struct{}{
+	"sessionId":   {},
+	"resetToken":  {},
+	"resetLink":   {},
+	"secret":      {},
+	"adminNotes":  {},
+	"storagePath": {},
 }
 
 func Open(filePath string) (*Logger, error) {
@@ -40,23 +46,16 @@ func (logger *Logger) Event(eventName string, fields map[string]any) error {
 		"timestamp": logger.now().UTC().Format("2006-01-02T15:04:05.000Z"),
 		"event":     eventName,
 	}
-	maps.Copy(record, fields)
-
-	redacted := make(map[string]any, len(record))
-
-	for key, value := range record {
-		redacted[key] = value
-		for _, field := range redactedFields {
-			if key == field {
-				redacted[key] = "[REDACTED]"
-				break
-			}
+	for key, value := range fields {
+		if _, sensitive := sensitiveFields[key]; sensitive {
+			value = redactedValue
 		}
+		record[key] = value
 	}
 
 	logger.mutex.Lock()
 	defer logger.mutex.Unlock()
-	if err := json.NewEncoder(logger.file).Encode(redacted); err != nil {
+	if err := json.NewEncoder(logger.file).Encode(record); err != nil {
 		return fmt.Errorf("write application log: %w", err)
 	}
 	return nil
