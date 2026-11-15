@@ -578,3 +578,77 @@ In Logger.Event, replace each sensitive value with "[REDACTED]" before encoding 
 Start the app.
 
 With Bearly Secure still running, run and submit the CLI tests from the project root.
+
+## CH8: Infrastructure Security
+### L1: Managing Secrets
+Managing Secrets
+A secret is any value that grants access, signs data, or proves identity. If an attacker steals one, they don't need to break in... they can just use the credential. Common secrets include:
+
+API keys
+
+Database credentials
+
+OAuth client secrets
+
+Session and JSON Web Token signing keys
+
+Webhook signing secrets
+
+Configuration isn't automatically secret. A port number, feature flag, or public service URL can live in configuration without needing protection. The real question is what the value lets someone do.
+
+Imagine an app that commits its adminAPIAccess key directly in source code. You might think, "Well, the repo is private, so no one can see it," but now the key spreads through Git history, CI logs, backups, and developer machines. Deleting the line in a later commit doesn't erase those copies! The only safe option is to rotate the key.
+
+If a real secret is ever committed to a repository, treat it as compromised. Revoke or rotate it first, then remove it from the code and investigate where else it spread.
+
+#### Quiz
+#### Explain
+Let's look at why those are the correct answers for each question:
+
+Question 1: What must be kept secret?
+Correct answer: The PawPal API key
+
+Configuration vs. Secret: Configuration data describes how an application runs, whereas secrets grant access or prove identity.
+
+A port (e.g., 8080), an app origin (e.g., https://example.com), and a feature flag (e.g., enableCheckout: true) control behavior and routing, but knowing them does not allow an attacker to impersonate your system or access privileged resources.
+
+An API key provides authentication and authorization to external services or data. Anyone who gets hold of it can act on behalf of your application, consume your paid quota, or steal sensitive user data.
+
+Question 2: Why rotate the key instead of just deleting it?
+Correct answer: Rotate the key, remove it, and investigate where it spread.
+
+Git remembers history: Simply removing the secret in a subsequent commit (git commit -m "remove secret") does not delete the commit where it was originally added. The key remains visible to anyone who clones the repository or views its Git history.
+
+Immediate compromise: Once pushed, a secret can easily be pulled into CI/CD build logs, developer machines, backups, or caught by automated scrapers monitoring public and private repositories.
+
+The remedy: Because you cannot reliably assume the key was never seen or cached, you must rotate (revoke) the key immediately to invalidate the old credential, clean it out of the repository, and check audit logs to see if unauthorized access occurred.
+
+### L2: Injecting Secrets at Runtime
+Injecting Secrets at Runtime
+Apps need secrets at runtime, but those secrets shouldn't live in source code. A common approach is to inject them through environment variables.
+
+Centralizing required configuration gives every secret the same validation behavior:
+
+func requireEnvironmentVariable(environment map[string]string, name string) (string, error) {
+    value := environment[name]
+    if value == "" {
+        return "", fmt.Errorf("missing required environment variable: %s", name)
+    }
+    return value, nil
+}
+
+Read required configuration during startup. If PAWPAL_API_KEY is missing, fail immediately instead of waiting until a customer tries to check out. That's safer and easier to debug.
+
+Secrets don't need to use environment variables, and environment variables can still be handled insecurely. The important part is that secrets are not committed to source code. Inject them when the app starts from a protected source.
+
+Assignment
+Bearly Secure uses a PawPal API key committed in its configuration package. Replace that hard-coded key with required runtime configuration.
+
+In internal/config/config.go, add a helper that returns a required environment value or an error when it is empty.
+
+In Parse, require PAWPAL_API_KEY and assign it to Config.PawPalAPIKey instead of using the starter key.
+
+Start the app with a dummy key and confirm startup succeeds. Keep it running.
+
+PAWPAL_API_KEY=pawpal_test_local go run ./cmd/server
+
+With Bearly Secure still running, run and submit the CLI tests from the project root in another terminal.
