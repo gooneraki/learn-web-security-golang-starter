@@ -652,3 +652,47 @@ Start the app with a dummy key and confirm startup succeeds. Keep it running.
 PAWPAL_API_KEY=pawpal_test_local go run ./cmd/server
 
 With Bearly Secure still running, run and submit the CLI tests from the project root in another terminal.
+
+### L3: Protecting Secrets
+Moving a secret out of source code is only the first step. Local files that contain injected secrets also need to stay out of version control.
+
+As a general rule, environment files should be ignored:
+```
+.env*
+!.env.example
+```
+A committed .env.example conventionally documents the expected names with dummy values:
+```
+APP_ORIGIN=http://localhost:3030
+PAWPAL_API_KEY=replace_with_your_pawpal_api_key
+```
+Developers can copy that template to .env and supply their own local values. In Go, a package such as godotenv can read the file during startup. Load .env first and then overlay the process environment so an explicitly injected value takes precedence.
+
+Assignment
+Bearly Secure requires runtime configuration but does not safely load local environment files. Add a protected local configuration workflow and use a stable download-signing key.
+
+1. Use godotenv in internal/config/config.go to read .env from workingDirectory when the file exists.
+
+2. Load values from .env, then overwrite them with values from os.Environ() so inline variables take precedence.
+
+3. Use the loaded secrets in both Load and LoadAttackerLab.
+
+4. In Parse, require DOWNLOAD_SIGNING_KEY and decode it as exactly 64 hexadecimal characters into a [32]byte. Return an error for any other value.
+
+5. In internal/httpserver/app.go, stop generating a random download signing key at startup.
+
+6. Add the loaded signing key to config.Config and httpserver.Options, then pass it from cmd/server/main.go to the HTTP server.
+
+7. Add DOWNLOAD_SIGNING_KEY=replace_with_64_hex_characters to .env.example.
+
+8. Ignore every .env variant while keeping .env.example tracked.
+
+9. Copy .env.example to .env and replace its placeholders with valid dummy values. You can generate a signing key with:
+
+`openssl rand -hex 32`
+
+10. Start the app without inline environment variables:
+
+`go run ./cmd/server`
+
+With Bearly Secure still running, run and submit the CLI tests from a separate terminal in the project root.
