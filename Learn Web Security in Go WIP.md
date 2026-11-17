@@ -696,3 +696,59 @@ Bearly Secure requires runtime configuration but does not safely load local envi
 `go run ./cmd/server`
 
 With Bearly Secure still running, run and submit the CLI tests from a separate terminal in the project root.
+
+### L4: Build Artifacts and Deployment Hygiene
+A production container should contain what the app needs to run and not much else. Extra tools and files increase image size and give an attacker more to work with.
+
+This Dockerfile builds and runs a Go app in one image:
+```
+FROM golang:1.27.0-alpine
+
+WORKDIR /app
+COPY . .
+RUN go build -o server ./cmd/server
+CMD ["./server"]
+```
+It copies the entire build context and leaves the compiler, module cache, and source code in the production image. A multi-stage build can compile the binaries separately and copy only runtime artifacts into a smaller final stage:
+```
+FROM golang:1.27.0-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -o /out/server ./cmd/server
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates && addgroup -S app && adduser -S -G app app
+WORKDIR /app
+COPY --from=build /out/server ./server
+USER app
+CMD ["./server"]
+```
+`RUN CGO_ENABLED=0 go build -trimpath -o /out/server ./cmd/server`: The build stage compiles the Go binary and puts in /out/server
+
+`COPY --from=build /out/server ./server`: The runtime stage copies the binary from the build stage to the runtime stage.
+
+The exact runtime files depend on the app. Explicitly copy only the binaries and assets production needs, and run the process as an unprivileged user.
+
+Running as the unprivileged bearly user limits what a compromised process can do. The user still needs permission to perform Bearly Secure's ordinary runtime work.
+
+Assignment
+Bearly Secure's production image contains the whole project and Go toolchain. Replace it with a narrow multi-stage image.
+
+1. In `Dockerfile`, use `golang:1.27.0-alpine` as a build stage and compile static `bearly-secure` and `bearly-attacker-lab` binaries from their `cmd/` packages with `CGO_ENABLED=0`.
+
+2. Use `alpine:3.22` for the runtime stage and install CA certificates.
+
+3. Create an unprivileged `bearly` user and group, and set `/app` as the working directory.
+
+4. Copy only the two binaries, `attacker-lab/`, `web/`, and `data/uploads/mystery-shack-tax-exemption.pdf` into the runtime stage. Do not use `COPY . .` there.
+
+5. Give `bearly` ownership of `/app/data`, switch to that user, and configure the container to start `./bearly-secure`.
+
+6. If Docker is available, build the image and confirm the runtime user ID is nonzero.
+```
+docker build -t bearly-secure .
+docker run --rm --entrypoint id bearly-secure -u
+```
+Run and submit the CLI tests from the project root.
