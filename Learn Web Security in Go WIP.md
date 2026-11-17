@@ -752,3 +752,43 @@ docker build -t bearly-secure .
 docker run --rm --entrypoint id bearly-secure -u
 ```
 Run and submit the CLI tests from the project root.
+
+### L5: Limiting Build Context
+A .dockerignore file removes files from the build context before Docker sends it to the builder. Ignored local data never becomes available to Dockerfile instructions.
+
+A useful ignore file targets files that are local, generated, sensitive, or irrelevant to production, not source files the build needs:
+```
+.env*
+.git/
+tmp/
+*.log
+data/*.sqlite*
+data/uploads/*
+!data/uploads/sample-document.pdf
+```
+The Dockerfile and `.dockerignore` solve different problems:
+- .dockerignore controls what the builder can see.
+- The Dockerfile controls what is copied into each image stage.
+
+Use both boundaries. A narrow Dockerfile doesn't justify sending secrets to the builder, and a strong .dockerignore doesn't make COPY . . precise.
+
+Assignment
+Bearly Secure's narrow Dockerfile still sends the entire project to the builder. Add a .dockerignore that limits the build context without removing required inputs.
+
+1. Ignore:
+- environment files
+- Git directory
+- temporary files
+- logs
+- local databases
+- bulk-import documents (data/bulk-tax-documents/)
+- runtime uploads (data/uploads/)
+
+2. Keep `go.mod`, `go.sum`, Go source, `web/`, `attacker-lab/`, and `data/uploads/mystery-shack-tax-exemption.pdf` available to the Dockerfile.
+
+3. If Docker is available, rebuild the image and confirm the PDF is still included.
+```
+docker build -t bearly-secure .
+docker run --rm --entrypoint test bearly-secure -f /app/data/uploads/mystery-shack-tax-exemption.pdf
+```
+Run and submit the CLI tests from the project root.
