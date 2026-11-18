@@ -792,3 +792,201 @@ docker build -t bearly-secure .
 docker run --rm --entrypoint test bearly-secure -f /app/data/uploads/mystery-shack-tax-exemption.pdf
 ```
 Run and submit the CLI tests from the project root.
+
+### L6: Source Code and Config Leaks
+A web server can expose source code and configuration simply because its static-file boundary is too broad. Imagine a Go app that serves the entire working directory:
+```
+fileServer := http.FileServer(http.Dir("."))
+mux.Handle("GET /", fileServer)
+```
+That might make `/web/public/logo.png` available, but it can also expose `/go.mod`, application source, and other project files.
+
+Serve a deliberately curated directory instead:
+```
+publicFiles := http.FileServer(http.Dir("web/public"))
+mux.Handle("GET /", publicFiles)
+```
+A URL prefix does not narrow the filesystem root by itself. Mounting the first handler under `/assets/` would still publish files from `.`; it would only change the URLs used to reach them.
+
+#### Quiz
+##### Question 1
+Bearly Secure needs to serve browser assets while keeping Go source, module files, Git history, and local configuration private. Which setup creates the clearest leak?
+
+1. Serving the project working directory with an http.FileServer (correct)
+2. Serving only web/public with an http.FileServer
+3. Registering an explicit handler for styles.css
+4. Embedding only the intended browser assets in the binary
+
+##### Question 2
+An engineer serves the project directory under the URL prefix /assets/ and assumes source files are now protected. Why is the leak still present?
+
+1. The URL prefix changes routes, not the filesystem root being served. (correct)
+2. Go serves only images from routes named /assets/.
+3. Browsers can access files only from the root URL.
+4. A URL prefix automatically exposes dotfiles but not Go files.
+
+#### Explained
+Both answers come down to the difference between which folder on your server is exposed and what URL path points to it.
+
+Question 1: Why serving the working directory creates a leak
+When you pass http.Dir(".") to http.FileServer, you are telling Go to make the entire current working directory (your project root) downloadable over HTTP.
+
+Even if you only intend for browsers to fetch web/public/logo.png, anyone can request /go.mod, /main.go, /.env, or /.git/config because all of those files live inside ..
+
+The other options avoid this by restricting what is exposed:
+
+Serving only web/public limits the file server to a dedicated asset folder.
+
+Registering an explicit handler for styles.css only serves that single file.
+
+Embedding only the intended browser assets in the binary ensures nothing else is included.
+
+Question 2: Why a /assets/ URL prefix doesn't fix it
+Mounting http.FileServer(http.Dir(".")) under /assets/ only changes the URL route used to reach the files—it does not change the filesystem directory being served.
+
+With that setup, a request to /assets/go.mod would still map to ./go.mod on disk (unless http.StripPrefix isn't used, in which case it looks for ./assets/go.mod, though the root problem remains that . is still the configured root). To actually prevent the leak, you have to narrow the directory passed to http.Dir(...) itself, such as http.Dir("web/public").
+
+### L7: Public File Leaks
+Imagine a recipe app that correctly limits static serving to web/public/, but leaves web/public/internal-config.json inside that directory. Derp.
+
+You could add special-case handler logic that blocks that one filename. But then the security boundary depends on logic someone might forget to preserve. Remove private data from the public directory entirely. It's simpler, and simpler is easier to keep secure.
+
+An obscure filename or unlinked URL doesn't make a public file private. If server-side code needs the file, store it outside the static root.
+
+Assignment
+Bearly Secure publishes operational details from web/public/internal-config.json. Remove the private file without breaking intended assets.
+
+Remove web/public/internal-config.json.
+
+Start the app.
+
+Confirm http://localhost:3030/internal-config.json returns 404 Not Found while http://localhost:3030/styles.css still loads.
+
+With Bearly Secure still running, run and submit the CLI tests from the project root.
+
+### L8: Server-Side Request Forgery
+Servers can often reach systems that a visitor's browser can't: loopback interfaces, private networks, and cloud infrastructure endpoints. Server-side request forgery (SSRF) happens when an attacker tricks a server into sending a request that borrows that privileged network position.
+
+Click to hide video
+
+Imagine a travel app whose image-preview tool accepts a URL and fetches it directly:
+
+response, err := http.Get(imageURL)
+
+The feature is supposed to preview a public hotel image, but the input is really an unrestricted request destination. An attacker can use the tool to make the server fetch its own /health endpoint, probe a private admin service, or contact a cloud metadata address. The preview might then return sensitive information that was never reachable from the attacker's network.
+
+SSRF can also do damage even when the response is hidden or ignored. A forged request can scan internal ports or trigger state-changing actions on a service that trusts the local network. Maybe the attacker isn't trying to read the response, just get your server to take your database offline or delete a file.
+
+Whenever a feature accepts a URL or slug for a server-side request, ask:
+
+Which destinations does the feature actually need?
+
+What can the server reach that the requesting user cannot?
+
+#### Quiz
+##### Question 1
+Bearly Secure's admin image-preview handler passes the submitted URL to its Go HTTP client and displays part of the response. An administrator submits the app's loopback /health URL and receives the health response. Why is this SSRF even though the route requires an admin session?
+
+1. The server can reach destinations the caller can't. (correct)
+2. Loopback responses automatically grant CORS access.
+3. JSON responses cause SSRF vulnerabilities.
+4. Admin-only routes can't have SSRF vulnerabilities.
+
+##### Question 2
+A URL-checking feature returns only reachable or unreachable and never shows the fetched response. Which risk can still make it vulnerable to SSRF?
+
+1. SSRF requires returning the complete response.
+2. SSRF requires parsing the response as JSON.
+3. It can probe ports or trigger trusted internal services. (correct)
+4. Hidden responses turn server requests into CORS requests.
+
+#### Explained
+Both answers come straight from one idea in the lesson: SSRF is about the server's network position, not about what the caller can see or do.
+
+Question 1: Why is the admin's loopback /health request SSRF?
+Answer: The server can reach destinations the caller can't.
+
+The admin submits a URL, and the server fetches it using its own network position. Loopback (127.0.0.1) only means something from the server's own point of view. From the admin's browser, it points at the admin's own machine. The server is making a request on the attacker's behalf to a place the caller couldn't reach directly. That is the "forged" part of the attack.
+
+The admin session doesn't change this. It only controls who can use the feature. It doesn't limit where the feature can send requests. If an admin account is compromised, or the feature is abused, the same tool can reach internal admin services or cloud metadata endpoints.
+
+Why the other options are wrong:
+
+Loopback responses automatically grant CORS access: CORS is a browser mechanism. This request is server-to-server, so CORS isn't involved.
+
+JSON responses cause SSRF vulnerabilities: The response format has nothing to do with it. The vulnerability is the unrestricted request destination.
+
+Admin-only routes can't have SSRF vulnerabilities: This is false for the reason above. Authentication doesn't restrict the destination.
+
+Question 2: The checker only says reachable or unreachable. Why is it still risky?
+Answer: It can probe ports or trigger trusted internal services.
+
+Not seeing the response doesn't make the request harmless. The request still leaves the server and lands somewhere. Two things can go wrong:
+
+Probing: The attacker submits http://10.0.0.5:5432, :6379, and so on. "Reachable" versus "unreachable" tells them which internal hosts and ports are open, so they can map your private network.
+
+Triggering actions: Some internal services trust anything coming from the local network. A forged request to one of them could take a database offline or delete a file, and the attacker never needs to read the reply.
+
+Why the other options are wrong:
+
+SSRF requires returning the complete response and SSRF requires parsing the response as JSON: Both treat reading the response as required. The lesson says SSRF can do damage even when the response is hidden or ignored.
+
+Hidden responses turn server requests into CORS requests: Again, CORS only applies to browsers, and hiding a response doesn't change what kind of request it is.
+
+The takeaway
+Ask the two questions from the lesson about any feature that fetches a URL:
+
+Which destinations does it actually need?
+
+What can the server reach that the requesting user can't?
+
+If the server can reach more than the user can, an unrestricted URL input gives the user that extra reach.
+
+### L9: Defending Against SSRF
+The safest SSRF defense is to avoid arbitrary destinations. If an app needs images from one provider, accept HTTPS URLs for that exact host and reject everything else.
+
+Better yet, accept image IDs and build the URLs within server code.
+
+Parse and validate the URL before sending a request:
+
+func allowedURL(rawURL string) (*url.URL, bool) {
+    parsed, err := url.Parse(rawURL)
+    if err != nil || parsed.Scheme != "https" {
+        return nil, false
+    }
+    if parsed.User != nil || parsed.Host != "images.example.com" {
+        return nil, false
+    }
+    return parsed, true
+}
+
+Compare the parsed host exactly. That rejects unexpected ports and lookalike hosts such as images.example.com.attacker.test.
+
+The HTTP client needs its own boundaries too. Set request, response-header, and TLS-handshake timeouts so a slow approved host can't hold resources indefinitely. Disable proxy discovery when it is not part of the feature's design.
+
+Redirects need an explicit policy. Go's http.Client follows redirects by default, so an approved URL might redirect to an internal destination. A CheckRedirect function can return http.ErrUseLastResponse, leaving the redirect response unread for the caller to reject.
+
+An exact-host allowlist avoids most DNS ambiguity, but if you truly need arbitrary public hosts, blocking private addresses gets much harder: validate every resolved IPv4 and IPv6 address and ensure the connection uses an address you checked. A separate DNS lookup followed by a normal request doesn't guarantee both operations use the same address, so it doesn't stop DNS rebinding by itself.
+
+Assignment
+Bearly Secure's image-preview service can fetch any destination the server can reach. Restrict previews to the exact approved HTTPS host.
+
+Reset the database and start the app.
+
+Log in as Theo (theo@example.com / password123) and use http://localhost:3030/admin/image-preview to fetch http://127.0.0.1:3030/health, then stop the app.
+
+In internal/imagepreview/service.go, make allowedURL accept only URLs with:
+
+the https scheme
+
+no user credentials
+
+the exact host storage.googleapis.com
+
+Return an imagepreview.Error with the message Use an HTTPS URL from an allowed image host. when validation fails.
+
+Give the HTTP client a five-second overall timeout, response-header timeout, and TLS-handshake timeout.
+
+Disable proxy discovery and automatic redirects. Return redirect responses without reading their bodies.
+
+Run and submit the CLI tests from the project root.
