@@ -990,3 +990,44 @@ Give the HTTP client a five-second overall timeout, response-header timeout, and
 Disable proxy discovery and automatic redirects. Return redirect responses without reading their bodies.
 
 Run and submit the CLI tests from the project root.
+
+### L10: Open Redirects
+An open redirect sends a user to a destination supplied by the requester. Unlike SSRF, the server isn't fetching the destination itself. The app is lending its trusted domain to an attacker-controlled redirect.
+
+Imagine a conference site that carries a returnTo value through login and redirects to it afterward:
+
+returnTo := request.FormValue("returnTo")
+http.Redirect(responseWriter, request, returnTo, http.StatusFound)
+
+If an attacker puts an external URL in a legitimate conference login link, the victim sees the trusted domain, signs in, and is immediately sent to a phishing site.
+
+
+Open redirect diagram
+
+A shared helper can return a requested path only when it is explicitly allowlisted:
+
+var allowedPaths = map[string]struct{}{
+    "/":        {},
+    "/account": {},
+    "/schedule": {},
+}
+
+func Safe(value string) string {
+    if _, allowed := allowedPaths[value]; allowed {
+        return value
+    }
+    return "/"
+}
+
+A check such as strings.HasPrefix(value, "/") isn't enough. A scheme-relative URL like //evil.example begins with a slash but still sends the browser to another host. Exact matching also rejects crafted prefixes and internal destinations the flow doesn't need.
+
+Assignment
+Bearly Secure already has an exact return-path allowlist, but its login handlers don't use it. Apply the shared redirect policy to every login flow.
+
+In internal/httpserver/auth.go, update safeReturnTo to use returnto.Safe. This applies the shared policy to the password and TOTP handlers.
+
+In internal/auth/passkeys/handler.go, replace both uses of unsafeReturnTo with returnto.Safe, then delete unsafeReturnTo.
+
+Start the app and confirm /login?returnTo=%2Faccount returns to the account page after login while an external returnTo falls back to /.
+
+With Bearly Secure still running, run and submit the CLI tests from the project root.

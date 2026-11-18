@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const allowedImageHost = "storage.googleapis.com"
+
 type Result struct {
 	RequestedURL string
 	FinalURL     string
@@ -41,10 +43,11 @@ type Service struct {
 }
 
 func NewService() *Service {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
-	transport.ResponseHeaderTimeout = 5 * time.Second
-	transport.TLSHandshakeTimeout = 5 * time.Second
+	transport := &http.Transport{
+		Proxy:                 nil,
+		ResponseHeaderTimeout: 5 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+	}
 	return &Service{client: &http.Client{
 		Timeout:   5 * time.Second,
 		Transport: transport,
@@ -109,8 +112,11 @@ func (service *Service) Fetch(ctx context.Context, rawURL string, maxBytes int64
 
 func allowedURL(rawURL string) (*url.URL, bool) {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.User != nil || parsed.Host != "storage.googleapis.com" || (parsed.Scheme != "https") {
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Host != allowedImageHost {
 		return nil, false
+	}
+	if parsed.Path == "" {
+		parsed.Path = "/"
 	}
 	return parsed, true
 }
