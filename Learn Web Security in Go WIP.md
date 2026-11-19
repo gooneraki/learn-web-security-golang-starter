@@ -1031,3 +1031,106 @@ In internal/auth/passkeys/handler.go, replace both uses of unsafeReturnTo with r
 Start the app and confirm /login?returnTo=%2Faccount returns to the account page after login while an external returnTo falls back to /.
 
 With Bearly Secure still running, run and submit the CLI tests from the project root.
+
+### L11: Risks of Dependencies
+Modern apps depend on code their teams didn't write, and each dependency can bring transitive modules, maintainers, release processes, and new code into your security boundary.
+
+A transitive dependency is a module required by one of your dependencies rather than directly by your app. It can be several levels deep.
+
+An outdated module might have a known vulnerability. A compromised maintainer might publish a malicious release. An unexpected replace directive can redirect a trusted module path to different code. That's a lot of trust for one dependency change.
+
+Go records direct requirements in go.mod and cryptographic checksums for downloaded module versions in go.sum:
+
+require example.com/imagekit v1.4.2
+
+Minimal version selection makes the module graph deterministic for a given go.mod, while go.sum helps detect downloaded content that does not match the expected checksum. Neither mechanism proves the selected code is safe, maintained, or appropriate.
+
+Reproducible module selection and verified checksums do not make the selected code trustworthy.
+
+Before adding a module, inspect its purpose, maintenance, transitive growth, and any replace or exclude directives. Ask whether its capability is worth the extra code and attack surface. Good engineers don't add a dependency to avoid a small amount of straightforward code!
+
+#### Quiz
+
+##### Question 1
+
+A pull request adds an unexpected replace directive that redirects a familiar Go module path to an unfamiliar fork. Which is the clearest reason to block the change pending review?
+
+1. The build may now trust and execute different source code. (correct)
+2. Replace directives make direct dependencies transitive.
+3. Go refuses to verify any module selected by a replace directive.
+4. A replacement always upgrades the module to its newest version.
+
+##### Question 2
+
+Bearly Secure commits go.mod and go.sum. Which security claim about that process is accurate?
+
+1. It prevents the module graph from containing transitive dependencies.
+2. It helps reproduce and verify selected module content, but doesn't prove safety. (correct)
+3. It automatically upgrades dependencies when fixes are published.
+4. Go verifies every selected module as free of vulnerabilities.
+
+##### Question 3
+
+A developer proposes adding an unmaintained module to avoid writing a small amount of straightforward code. Which is the best security review response?
+
+1. Reject it unless its value justifies the added supply-chain risk. (correct)
+2. Approve it if no vulnerability advisory exists.
+3. Approve it because dependencies are safer than short application code.
+4. Approve it as an indirect dependency instead.
+
+#### Explained
+
+Here is why each of those answers is correct:
+
+1. Unexpected replace directive
+Answer: The build may now trust and execute different source code.
+
+A replace directive in go.mod tells Go to swap out a module path for a different one (such as a fork or a local directory). If a pull request introduces an unexpected replace pointing to an unfamiliar fork, your build will silently pull in, trust, and execute code from that fork instead of the original module.
+
+2. Committing go.mod and go.sum
+Answer: It helps reproduce and verify selected module content, but doesn't prove safety.
+
+go.mod ensures reproducibility by recording your direct requirements so minimal version selection produces the same module graph.
+
+go.sum ensures integrity by storing cryptographic checksums to detect if downloaded module content doesn't match what's expected.
+
+Neither of these mechanisms inspects the code for vulnerabilities, bugs, or malicious behavior—they only ensure you get the exact same code every time.
+
+3. Adding an unmaintained module for straightforward code
+Answer: Reject it unless its value justifies the added supply-chain risk.
+
+Every dependency you add expands your security boundary, bringing in new maintainers, release processes, and potential transitive dependencies. If a module is unmaintained and only saves you from writing a small amount of simple code, the added supply-chain risk outweighs the convenience.
+
+### L12: Auditing Dependencies
+Go provides separate checks for module integrity, module hygiene, and known vulnerabilities.
+
+go mod verify
+go mod tidy -diff
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+go mod verify checks that downloaded module content still matches the recorded hashes.
+
+go mod tidy -diff reports whether the module files, go.mod and go.sum, need any changes. Running it without -diff would also make those changes.
+
+govulncheck compares the application's reachable code with published Go vulnerability data.
+
+A clean report is useful, but it is not proof that the dependencies are safe. An unpublished vulnerability, malicious behavior without an advisory, or risky application code could still be present even if all these checks pass.
+
+When a scan does report a vulnerability, make sure to inspect the affected call path, the fixed version of the dependency, and possible compatibility impact before updating.
+
+Assignment
+Verify Bearly Secure's module graph and audit its dependencies without changing the project.
+
+These commands may print go: downloading ... while fetching dependencies. That's normal; wait for each command to finish before interpreting the result.
+
+Run go mod verify. If it succeeds, it should print all modules verified.
+
+Run go mod tidy -diff. There should be no diff; that means the module files are already tidy.
+
+Run the vulnerability scanner and review the report:
+
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+It should print: No vulnerabilities found.
+
+If everything looks clean, run and submit the CLI tests from the project root.
